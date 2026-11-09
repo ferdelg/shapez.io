@@ -30,6 +30,7 @@ import { MobileWarningState } from "./states/mobile_warning";
 import { PreloadState } from "./states/preload";
 import { SettingsState } from "./states/settings";
 import { ShapezGameAnalytics } from "./platform/browser/game_analytics";
+import { NoAnalytics, NoGameAnalytics } from "./platform/no_analytics";
 import { RestrictionManager } from "./core/restriction_manager";
 import { PuzzleMenuState } from "./states/puzzle_menu";
 import { ClientAPI } from "./platform/api";
@@ -117,7 +118,7 @@ export class Application {
         /** @type {AnalyticsInterface} */
         this.analytics = null;
 
-        /** @type {ShapezGameAnalytics} */
+        /** @type {ShapezGameAnalytics|NoGameAnalytics} */
         this.gameAnalytics = null;
 
         this.initPlatformDependentInstances();
@@ -159,6 +160,10 @@ export class Application {
 
         // Check for mobile
         else if (IS_MOBILE) {
+            if (G_IS_FLINSH) {
+                // PreloadState reuses the loading screen from index.html; keep it for "Try anyway"
+                window["__flinshPreloaderHtml"] = document.body.innerHTML;
+            }
             this.stateMgr.moveToState("MobileWarningState");
         } else {
             this.stateMgr.moveToState("PreloadState");
@@ -189,8 +194,14 @@ export class Application {
         // Start with empty ad provider
         this.adProvider = new NoAdProvider(this);
         this.sound = new SoundImplBrowser(this);
-        this.analytics = new GoogleAnalyticsImpl(this);
-        this.gameAnalytics = new ShapezGameAnalytics(this);
+        if (G_IS_FLINSH) {
+            // No analytics.shapez.io / gtag traffic from inside the Flinsh sandbox
+            this.analytics = new NoAnalytics(this);
+            this.gameAnalytics = new NoGameAnalytics(this);
+        } else {
+            this.analytics = new GoogleAnalyticsImpl(this);
+            this.gameAnalytics = new ShapezGameAnalytics(this);
+        }
         this.achievementProvider = new NoAchievementProvider(this);
     }
 

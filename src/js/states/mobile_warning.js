@@ -1,5 +1,6 @@
 import { cachebust } from "../core/cachebust";
 import { GameState } from "../core/game_state";
+import { signalFlinshReady } from "../core/flinsh";
 
 export class MobileWarningState extends GameState {
     constructor() {
@@ -7,6 +8,17 @@ export class MobileWarningState extends GameState {
     }
 
     getInnerHTML() {
+        if (G_IS_FLINSH) {
+            // No dead Steam link inside the sandbox; say what works and let people try anyway
+            return `
+            <img class="logo" src="${cachebust("res/logo.png")}" alt="shapez Logo">
+
+            <p>shapez is built for a mouse and keyboard, so it is hard to play on a phone.</p>
+            <p>Open this app on a computer to play. Your factory is saved in Flinsh, so it will be waiting there.</p>
+
+            <button class="styledButton flinshPlayAnyway">Try anyway</button>
+        `;
+        }
         return `
 
             <img class="logo" src="${cachebust("res/logo.png")}" alt="shapez.io Logo">
@@ -28,6 +40,18 @@ export class MobileWarningState extends GameState {
     }
 
     onEnter() {
+        if (G_IS_FLINSH) {
+            const button = this.htmlElement.querySelector(".flinshPlayAnyway");
+            if (button) {
+                this.trackClicks(button, () => {
+                    // PreloadState keeps the body and expects the index.html loading screen in it
+                    document.body.innerHTML = window["__flinshPreloaderHtml"] || "";
+                    this.moveToState("PreloadState");
+                });
+            }
+            signalFlinshReady();
+            return;
+        }
         try {
             if (window.gtag) {
                 window.gtag("event", "click", {

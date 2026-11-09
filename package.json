@@ -8,6 +8,8 @@
     "private": true,
     "scripts": {
         "dev": "cd gulp && yarn gulp",
+        "build:flinsh": "cd gulp && yarn gulp build.web-flinsh && cd .. && node scripts/build-flinsh.mjs",
+        "serve:flinsh": "node test/flinsh-serve.mjs",
         "devStandalone": "cd gulp && yarn gulp serve.standalone-steam",
         "tslint": "cd src/js && tsc",
         "lint": "eslint src/js",

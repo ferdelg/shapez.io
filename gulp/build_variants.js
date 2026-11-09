@@ -9,7 +9,8 @@
  *      chineseVersion?: boolean,
  *      wegameVersion?: boolean,
  *      steamDemo?: boolean,
- *      gogVersion?: boolean
+ *      gogVersion?: boolean,
+ *      flinsh?: boolean
  * }}>}
  */
 const BUILD_VARIANTS = {
@@ -27,6 +28,15 @@ const BUILD_VARIANTS = {
         standalone: false,
         environment: "prod",
         buildArgs: {},
+    },
+    // Free web variant for the Flinsh sandbox: no network, store-backed saves.
+    // Assembled into dist-flinsh*/ by scripts/build-flinsh.mjs.
+    "web-flinsh": {
+        standalone: false,
+        environment: "prod",
+        buildArgs: {
+            flinsh: true,
+        },
     },
     "standalone-steam": {
         standalone: true,

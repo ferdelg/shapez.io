@@ -47,6 +47,10 @@ export class PreloadState extends GameState {
     }
 
     async fetchDiscounts() {
+        if (G_IS_FLINSH) {
+            // No network in the Flinsh sandbox
+            return;
+        }
         await timeoutPromise(
             fetch("https://analytics.shapez.io/v1/discounts")
                 .then(res => res.json())
@@ -63,7 +67,7 @@ export class PreloadState extends GameState {
     }
 
     async sendBeacon() {
-        if (G_IS_STANDALONE && !G_IS_STEAM_DEMO) {
+        if ((G_IS_STANDALONE && !G_IS_STEAM_DEMO) || G_IS_FLINSH) {
             return;
         }
         if (queryParamOptions.campaign) {
@@ -96,6 +100,10 @@ export class PreloadState extends GameState {
     startLoading() {
         this.setStatus("Booting")
             .then(() => {
+                if (G_IS_FLINSH) {
+                    // Opaque-origin sandbox: localStorage throws, saves go to flinsh.store instead
+                    return;
+                }
                 try {
                     window.localStorage.setItem("local_storage_feature_detection", "1");
                 } catch (ex) {
@@ -114,7 +122,7 @@ export class PreloadState extends GameState {
             .then(() => this.setStatus("Initializing local storage", 6))
             .then(() => {
                 const wrapper = this.app.platformWrapper;
-                if (wrapper instanceof PlatformWrapperImplBrowser) {
+                if (wrapper instanceof PlatformWrapperImplBrowser && !G_IS_FLINSH) {
                     try {
                         window.localStorage.setItem("local_storage_test", "1");
                         window.localStorage.removeItem("local_storage_test");

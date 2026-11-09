@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<!--
+    Local stand-in for the Flinsh host.
+
+        node test/flinsh-serve.mjs          ->  http://localhost:8130/test/flinsh-harness.html
+
+    mode=single (default)  dist-flinsh-single/index.html as iframe srcdoc, composed exactly like
+                           Flinsh does today (CSP meta + theme + bridge + app HTML).
+    mode=full              dist-flinsh-single/index.full.html (music + GIFs inlined; measurement only)
+    mode=multi             dist-flinsh/index.html served as a directory by flinsh-serve.mjs, with
+                           the CSP and bridge injection a directory-serving Flinsh would need.
+
+    Other params: phone=1 (390x844 frame), wipe=1 (empty store first), late=150 (inject the
+    bridge 150 ms late), nobridge=1, latency=40 (ms per store call).
+
+    The store mock enforces the documented limits: 256 KB per value (JSON), 2 MB and 1,000
+    keys per user, key charset. It persists in this page's localStorage so reloads keep it.
+-->
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Flinsh harness: shapez</title>
+        <link rel="icon" href="data:," />
+        <style>
+            body { margin: 0; font: 12px system-ui, sans-serif; display: flex; height: 100vh; background: #1b1b1f; color: #ddd; }
+            #wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; }
+            iframe { border: 0; width: 100%; height: 100%; background: #fff; }
+            .phone iframe { width: 390px; height: 844px; }
+            #side { width: 300px; overflow: auto; padding: 8px; box-sizing: border-box; border-left: 1px solid #444; }
+            pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; background: #26262c; padding: 6px; }
+            h3 { margin: 10px 0 4px; font-size: 12px; }
+        </style>
+        <script src="flinsh-sandbox.js"></script>
+    </head>
+    <body>
+        <div id="wrap"><iframe id="app" title="app"></iframe></div>
+        <div id="side">
+            <button id="reload">Reload app</button>
+            <button id="wipe">Wipe store</button>
+            <h3>Status</h3>
+            <pre id="status"></pre>
+            <h3>Store</h3>
+            <pre id="store"></pre>
+            <h3>Log</h3>
+            <pre id="log"></pre>
+        </div>
+        <script>
+            const params = new URLSearchParams(location.search);
+            const MODE = params.get("mode") || "single";
+            const LATENCY = +(params.get("latency") || 40);
+            if (params.get("phone") === "1") document.body.classList.add("phone");
+
+            const LIMITS = { value: 256 * 1024, total: 2 * 1024 * 1024, keys: 1000 };
+            const KEY_RE = /^(?!\/)(?!.*\.\.)[A-Za-z0-9._\-\/ ]{1,256}$/;
+            const LS_KEY = "flinsh-harness-store:shapez";
+
+            const state = {
+                mode: MODE,
+                t0: performance.now(),
+                htmlFetchedMs: null,
+                readyMs: null,
+                calls: { get: 0, set: 0, delete: 0, list: 0 },
+                rejected: [],
+                errors: [],
+                csp: [],
+                maxValueBytes: 0,
+            };
+            const store = new Map(Object.entries(JSON.parse(localStorage.getItem(LS_KEY) || "{}")));
+            if (params.get("wipe") === "1") store.clear();
+            const persist = () => localStorage.setItem(LS_KEY, JSON.stringify(Object.fromEntries(store)));
+            persist();
+
+            const bytes = v => new TextEncoder().encode(JSON.stringify(v)).length;
+            const usage = () => {
+                let total = 0;
+                for (const [k, v] of store) total += k.length + bytes(v);
+                return { keys: store.size, bytes: total };
+            };
+            const log = msg => {
+                const el = document.getElementById("log");
+                el.textContent = `[${Math.round(performance.now() - state.t0)}] ${msg}\n` + el.textContent.slice(0, 20000);
+            };
+            const render = () => {
+                document.getElementById("status").textContent = JSON.stringify({ ...state, usage: usage() }, null, 1);
+                document.getElementById("store").textContent = [...store.keys()]
+                    .map(k => `${k}  ${bytes(store.get(k))} B`)
+                    .join("\n");
+            };
+
+            function storeOp(op, payload) {
+                const key = String(payload.key ?? "");
+                if (op === "get") return store.has(key) ? store.get(key) : null;
+                if (op === "list") {
+                    const p = String(payload.prefix ?? "");
+                    return [...store.keys()].filter(k => k.startsWith(p)).sort();
+                }
+                if (!KEY_RE.test(key)) throw new Error("bad key: " + key);
+                if (op === "delete") {
+                    const had = store.delete(key);
+                    persist();
+                    return had;
+                }
+                // set
+                const size = bytes(payload.value);
+                if (size > LIMITS.value) throw new Error(`value too big (${size} B > 256 KB)`);
+                const u = usage();
+                const prev = store.has(key) ? key.length + bytes(store.get(key)) : 0;
+                if (!store.has(key) && u.keys + 1 > LIMITS.keys) throw new Error("over quota: keys");
+                if (u.bytes - prev + key.length + size > LIMITS.total) throw new Error("over quota: 2 MB");
+                state.maxValueBytes = Math.max(state.maxValueBytes, size);
+                store.set(key, payload.value);
+                persist();
+                return true;
+            }
+
+            const frame = document.getElementById("app");
+            window.addEventListener("message", e => {
+                if (e.source !== frame.contentWindow) return; // identity check, like Flinsh
+                const m = e.data || {};
+                if (m.__harness) {
+                    (m.kind === "csp" ? state.csp : state.errors).push(m.detail);
+                    log(m.kind + ": " + m.detail);
+                    render();
+                    return;
+                }
+                if (m.__flinsh === "ready") {
+                    if (state.readyMs === null) state.readyMs = Math.round(performance.now() - state.t0);
+                    log("flinsh.ready() at " + state.readyMs + " ms");
+                    render();
+                    return;
+                }
+                if (m.__flinsh !== "store") return;
+                if ((m.scope ?? "user") !== "user") {
+                    e.source.postMessage({ __flinshReply: m.id, error: "scope not permitted" }, "*");
+                    return;
+                }
+                state.calls[m.op] = (state.calls[m.op] || 0) + 1;
+                const source = e.source;
+                setTimeout(() => {
+                    let reply;
+                    try {
+                        reply = { __flinshReply: m.id, result: storeOp(m.op, m.payload || {}) };
+                        if (m.op !== "get") log(`${m.op} ${m.payload.key ?? m.payload.prefix ?? ""}`);
+                    } catch (err) {
+                        state.rejected.push(m.op + " " + (m.payload.key || "") + ": " + err.message);
+                        log("REJECTED " + m.op + " " + m.payload.key + ": " + err.message);
+                        reply = { __flinshReply: m.id, error: err.message };
+                    }
+                    source.postMessage(reply, "*");
+                    render();
+                }, LATENCY);
+            });
+
+            // Harness-only reporter inside the frame (not part of Flinsh)
+            const probe = `
+                (function () {
+                    function post(kind, detail) { parent.postMessage({ __harness: 1, kind: kind, detail: String(detail) }, "*"); }
+                    window.addEventListener("error", function (e) { post("error", e.message + " @ " + (e.filename || "") + ":" + (e.lineno || "")); });
+                    window.addEventListener("unhandledrejection", function (e) { post("error", "unhandledrejection: " + ((e.reason && e.reason.message) || e.reason)); });
+                    document.addEventListener("securitypolicyviolation", function (e) { post("csp", e.effectiveDirective + " blocked " + e.blockedURI); });
+                })();`;
+
+            async function load() {
+                state.t0 = performance.now();
+                state.readyMs = null;
+                frame.setAttribute("sandbox", window.FlinshSandbox.MINI_APP_SANDBOX);
+                if (MODE === "multi") {
+                    // The server injects CSP + bridge; see flinsh-serve.mjs
+                    frame.removeAttribute("srcdoc");
+                    frame.src = "/dist-flinsh/index.html?flinsh=1" + (params.get("nobridge") ? "&nobridge=1" : "");
+                    state.htmlFetchedMs = 0;
+                    return;
+                }
+                const file = MODE === "full" ? "index.full.html" : "index.html";
+                const html = await (await fetch("/dist-flinsh-single/" + file, { cache: "no-store" })).text();
+                state.htmlFetchedMs = Math.round(performance.now() - state.t0);
+                log(`fetched ${file}: ${(html.length / 1048576).toFixed(2)} MB in ${state.htmlFetchedMs} ms`);
+                const doc = params.get("nobridge")
+                    ? html
+                    : window.FlinshSandbox.buildMiniAppDocument({
+                          html,
+                          themeCss: ":root{--bg:#111;--surface:#1b1b1f;--text:#eee;--muted:#999;--accent:#c026a6}",
+                          input: {},
+                          permissions: ["store:user"],
+                          bridgeDelayMs: +(params.get("late") || 0),
+                          probe,
+                      });
+                frame.removeAttribute("src");
+                frame.srcdoc = doc;
+            }
+
+            document.getElementById("reload").onclick = load;
+            document.getElementById("wipe").onclick = () => {
+                store.clear();
+                persist();
+                render();
+            };
+            window.harness = { state, store, usage, load, render };
+            load();
+            render();
+        </script>
+    </body>
+</html>

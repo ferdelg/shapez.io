@@ -5,6 +5,7 @@ import { MinerComponent } from "../../components/miner";
 import { DynamicDomAttach } from "../dynamic_dom_attach";
 import { TrackedState } from "../../../core/tracked_state";
 import { cachebust } from "../../../core/cachebust";
+import { isFlinshAssetAvailable } from "../../../core/flinsh";
 import { T } from "../../../translations";
 import { enumItemProcessorTypes, ItemProcessorComponent } from "../../components/item_processor";
 import { ShapeItem } from "../../items/shape_item";
@@ -192,8 +193,15 @@ export class HUDInteractiveTutorial extends BaseHUDPart {
             ? "interactive_tutorial.cn.noinline"
             : "interactive_tutorial.noinline";
 
-        this.elementGif.style.backgroundImage =
-            "url('" + cachebust("res/ui/" + folder + "/" + hintId + ".gif") + "')";
+        const gifPath = "res/ui/" + folder + "/" + hintId + ".gif";
+        if (hintId && isFlinshAssetAvailable(gifPath)) {
+            this.elementGif.style.backgroundImage = "url('" + cachebust(gifPath) + "')";
+            this.elementGif.style.display = "";
+        } else {
+            // Not bundled in the single-file Flinsh build: show the text hint only
+            this.elementGif.style.backgroundImage = "";
+            this.elementGif.style.display = G_IS_FLINSH ? "none" : "";
+        }
         this.element.classList.toggle("animEven");
         this.element.classList.toggle("animOdd");
         if (hintId) {

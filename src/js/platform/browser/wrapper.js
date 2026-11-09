@@ -11,6 +11,21 @@ import { PlatformWrapperInterface } from "../wrapper";
 import { NoAchievementProvider } from "./no_achievement_provider";
 import { StorageImplBrowser } from "./storage";
 import { StorageImplBrowserIndexedDB } from "./storage_indexed_db";
+import { StorageImplFlinsh } from "./storage_flinsh";
+import { StorageImplMemory } from "./storage_memory";
+import { hasFlinshStore } from "../../core/flinsh";
+
+/** Whether localStorage works here (it throws in an opaque-origin sandbox) */
+function canUseLocalStorage() {
+    try {
+        const storage = window.localStorage;
+        storage.setItem("storage_availability_test", "1");
+        storage.removeItem("storage_availability_test");
+        return true;
+    } catch (ex) {
+        return false;
+    }
+}
 
 const logger = createLogger("platform/browser");
 
@@ -25,7 +40,12 @@ export class PlatformWrapperImplBrowser extends PlatformWrapperInterface {
             externalLinks: true,
         };
 
-        if (!G_IS_STANDALONE && !WEB_STEAM_SSO_AUTHENTICATED && queryParamOptions.embedProvider) {
+        if (G_IS_FLINSH) {
+            // Sandboxed iframe: no ads, no popups, so no external links either
+            this.embedProvider.id = "flinsh";
+            this.embedProvider.iframed = true;
+            this.embedProvider.externalLinks = false;
+        } else if (!G_IS_STANDALONE && !WEB_STEAM_SSO_AUTHENTICATED && queryParamOptions.embedProvider) {
             const providerId = queryParamOptions.embedProvider;
             this.embedProvider.iframed = true;
 
@@ -81,6 +101,21 @@ export class PlatformWrapperImplBrowser extends PlatformWrapperInterface {
         return new Promise(resolve => {
             logger.log("Detecting storage");
 
+            if (G_IS_FLINSH && hasFlinshStore()) {
+                logger.log("Using the Flinsh store");
+                this.app.storage = new StorageImplFlinsh(this.app);
+                resolve();
+                return;
+            }
+
+            if (G_IS_FLINSH && !canUseLocalStorage()) {
+                // Sandboxed without the bridge: IndexedDB and localStorage both throw
+                logger.warn("No Flinsh store and no browser storage, saves won't persist");
+                this.app.storage = new StorageImplMemory(this.app);
+                resolve();
+                return;
+            }
+
             if (!window.indexedDB) {
                 logger.log("Indexed DB not supported");
                 this.app.storage = new StorageImplBrowser(this.app);
@@ -134,6 +169,11 @@ export class PlatformWrapperImplBrowser extends PlatformWrapperInterface {
     }
 
     openExternalLink(url, force = false) {
+        if (G_IS_FLINSH) {
+            // The sandbox has no allow-popups; window.open would just be blocked
+            logger.log("External links are disabled in Flinsh:", url);
+            return;
+        }
         logger.log("Opening external:", url);
         window.open(url);
     }
@@ -170,6 +210,10 @@ export class PlatformWrapperImplBrowser extends PlatformWrapperInterface {
     }
 
     initializeAdProvider() {
+        if (G_IS_FLINSH) {
+            // Keep the NoAdProvider set by the application, and skip the adblock probe request
+            return Promise.resolve();
+        }
         if (G_IS_DEV && !globalConfig.debug.testAds) {
             logger.log("Ads disabled in local environment");
             return Promise.resolve();

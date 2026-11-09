@@ -7,6 +7,7 @@ import { MUSIC, SOUNDS } from "../platform/sound";
 import { T } from "../translations";
 import { AtlasDefinition, atlasFiles } from "./atlas_definitions";
 import { cachebust } from "./cachebust";
+import { getFlinshAsset } from "./flinsh";
 import { Loader } from "./loader";
 import { createLogger } from "./logging";
 import { Signal } from "./signal";
@@ -195,6 +196,14 @@ export class BackgroundResourcesLoader {
     }
 
     preloadWithProgress(src, progressHandler) {
+        if (G_IS_FLINSH) {
+            // Single-file Flinsh build: already in memory as a data: URI, no request needed.
+            const inlined = getFlinshAsset(src);
+            if (inlined) {
+                progressHandler(1);
+                return Promise.resolve(inlined);
+            }
+        }
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             let notifiedNotComputable = false;
@@ -245,6 +254,30 @@ export class BackgroundResourcesLoader {
     }
 
     internalPreloadCss(src, progressHandler) {
+        if (G_IS_FLINSH) {
+            // The Flinsh CSP only allows inline styles (no blob: or remote stylesheets),
+            // so the CSS text goes into a <style> element.
+            const inlined = getFlinshAsset(src);
+            const cssText = inlined
+                ? Promise.resolve(inlined)
+                : new Promise((resolve, reject) => {
+                      const xhr = new XMLHttpRequest();
+                      xhr.open("GET", cachebust(src), true);
+                      xhr.onprogress = ev => ev.lengthComputable && progressHandler(ev.loaded / ev.total);
+                      xhr.onloadend = () =>
+                          String(xhr.status).match(/^2/)
+                              ? resolve(xhr.responseText)
+                              : reject(src + ": " + xhr.status + " " + xhr.statusText);
+                      xhr.send();
+                  });
+            return cssText.then(text => {
+                progressHandler(1);
+                const styleElement = document.createElement("style");
+                styleElement.setAttribute("data-src", src);
+                styleElement.textContent = text;
+                document.head.appendChild(styleElement);
+            });
+        }
         return this.preloadWithProgress(src, progressHandler).then(blobSrc => {
             var styleElement = document.createElement("link");
             styleElement.href = blobSrc;

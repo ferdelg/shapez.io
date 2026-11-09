@@ -362,7 +362,8 @@ export class RegularGameMode extends GameMode {
         }
 
         if (this.root.app.settings.getAllSettings().offerHints) {
-            if (!G_WEGAME_VERSION) {
+            // Tutorial hint videos stream from static.shapez.io, which the Flinsh sandbox can't reach
+            if (!G_WEGAME_VERSION && !G_IS_FLINSH) {
                 this.additionalHudParts.tutorialHints = HUDPartTutorialHints;
             }
             this.additionalHudParts.interactiveTutorial = HUDInteractiveTutorial;

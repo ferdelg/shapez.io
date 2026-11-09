@@ -1,0 +1,8 @@
+{
+  "flinsh": "2",
+  "name": "shapez",
+  "description": "Build factories that cut, rotate and combine shapes. Your factory is saved in Flinsh.",
+  "type": "app",
+  "entrypoint": "dist-flinsh-single/index.html",
+  "permissions": ["store:user"]
+}

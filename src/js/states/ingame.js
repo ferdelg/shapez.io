@@ -500,16 +500,27 @@ export class InGameState extends GameState {
         logger.log("Starting to save game ...");
         this.savegame.updateData(this.core.root);
 
+        let saveFailed = false;
         this.currentSavePromise = this.savegame
             .writeSavegameAndMetadata()
             .catch(err => {
                 // Catch errors
                 logger.warn("Failed to save:", err);
+                saveFailed = true;
+                if (G_IS_FLINSH && this.core.root.hud.parts.dialogs) {
+                    // Upstream fails silently; in Flinsh the store can refuse (e.g. the 2 MB quota)
+                    this.core.root.hud.parts.dialogs.showWarning(
+                        "Not saved",
+                        "Your factory could not be saved to Flinsh: " + ((err && err.message) || err)
+                    );
+                }
             })
             .then(() => {
                 // Clear promise
-                logger.log("Saved!");
-                this.core.root.signals.gameSaved.dispatch();
+                logger.log(saveFailed ? "Save failed" : "Saved!");
+                if (!(G_IS_FLINSH && saveFailed)) {
+                    this.core.root.signals.gameSaved.dispatch();
+                }
                 this.currentSavePromise = null;
             });
 

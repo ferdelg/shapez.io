@@ -1,4 +1,5 @@
 import { cachebust } from "../core/cachebust";
+import { isFlinshAssetAvailable, signalFlinshReady } from "../core/flinsh";
 import { globalConfig, openStandaloneLink, THIRDPARTY_URLS } from "../core/config";
 import { GameState } from "../core/game_state";
 import { DialogWithForm } from "../core/modal_dialog_elements";
@@ -50,7 +51,7 @@ export class MainMenuState extends GameState {
             !G_GOG_VERSION;
         const showWegameFooter = G_WEGAME_VERSION;
         const hasMods = MODS.anyModsActive();
-        const hasSteamBridge = !G_GOG_VERSION && !G_IS_STEAM_DEMO;
+        const hasSteamBridge = !G_GOG_VERSION && !G_IS_STEAM_DEMO && !G_IS_FLINSH;
 
         let showExternalLinks = true;
 
@@ -130,9 +131,13 @@ export class MainMenuState extends GameState {
             </div>
 
 
-            <video autoplay muted loop class="fullscreenBackgroundVideo">
+            ${
+                isFlinshAssetAvailable("res/bg_render.webm")
+                    ? `<video autoplay muted loop class="fullscreenBackgroundVideo">
                 <source src="${cachebust("res/bg_render.webm")}" type="video/webm">
-            </video>
+            </video>`
+                    : ""
+            }
 
             <div class="logo">
                 <img src="${cachebust("res/" + getLogoSprite())}" alt="shapez.io Logo"
@@ -512,9 +517,14 @@ export class MainMenuState extends GameState {
         this.renderSavegames();
         this.fetchPlayerCount();
 
-        this.refreshInterval = setInterval(() => this.fetchPlayerCount(), 10000);
+        if (!G_IS_FLINSH) {
+            this.refreshInterval = setInterval(() => this.fetchPlayerCount(), 10000);
+        }
 
         this.app.gameAnalytics.noteMinor("menu.enter");
+
+        // The menu is interactive: let Flinsh drop its loading state
+        signalFlinshReady();
     }
 
     renderMainMenu() {
@@ -563,6 +573,9 @@ export class MainMenuState extends GameState {
     }
 
     fetchPlayerCount() {
+        if (G_IS_FLINSH) {
+            return;
+        }
         const element = this.htmlElement.querySelector(".onlinePlayerCount");
         if (!element) {
             return;

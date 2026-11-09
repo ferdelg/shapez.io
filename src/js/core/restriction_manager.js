@@ -81,7 +81,8 @@ export class RestrictionManager extends ReadWriteProxy {
      * @returns {boolean}
      */
     getIsStandaloneMarketingActive() {
-        return this.isLimitedVersion();
+        // The Flinsh sandbox can't open links, so the "buy on Steam" banners would be dead ends
+        return this.isLimitedVersion() && !G_IS_FLINSH;
     }
 
     /**

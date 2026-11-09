@@ -1,5 +1,6 @@
 import { MusicInstanceInterface, SoundInstanceInterface, SoundInterface, MUSIC, SOUNDS } from "../sound";
 import { cachebust } from "../../core/cachebust";
+import { isFlinshAssetAvailable } from "../../core/flinsh";
 import { createLogger } from "../../core/logging";
 import { globalConfig } from "../../core/config";
 
@@ -20,6 +21,10 @@ class SoundSpritesContainer {
     load() {
         if (this.loadingPromise) {
             return this.loadingPromise;
+        }
+        if (!isFlinshAssetAvailable("res/sounds/sfx.mp3")) {
+            logger.log("SFX not bundled in this build, sounds disabled");
+            return (this.loadingPromise = Promise.resolve());
         }
         return (this.loadingPromise = new Promise(resolve => {
             this.howl = new Howl({
@@ -93,6 +98,10 @@ class MusicInstance extends MusicInstanceInterface {
         this.playing = false;
     }
     load() {
+        if (!isFlinshAssetAvailable("res/sounds/music/" + this.url + ".mp3")) {
+            logger.log("Music", this.url, "not bundled in this build, skipping");
+            return Promise.resolve();
+        }
         return new Promise((resolve, reject) => {
             this.howl = new Howl({
                 src: cachebust("res/sounds/music/" + this.url + ".mp3"),

@@ -56,8 +56,13 @@ initGameModeRegistry();
 initGameSpeedRegistry();
 
 let app = null;
+let booted = false;
 
 function bootApp() {
+    if (booted) {
+        return;
+    }
+    booted = true;
     logger.log("Page Loaded");
     app = new Application();
     app.boot();
@@ -65,6 +70,22 @@ function bootApp() {
 
 if (G_IS_STANDALONE) {
     window.addEventListener("load", bootApp);
+} else if (G_IS_FLINSH) {
+    // Flinsh injects window.flinsh (the store bridge) and may do so after this script
+    // runs. Wait for it so saves go to the store; without it after 400 ms, start
+    // standalone with the browser's own storage.
+    // @ts-ignore
+    if (window.flinsh) {
+        bootApp();
+    } else {
+        window.addEventListener("flinsh:ready", bootApp);
+        setTimeout(() => {
+            if (!booted) {
+                logger.warn("No Flinsh bridge after 400 ms, starting standalone");
+                bootApp();
+            }
+        }, 400);
+    }
 } else {
     bootApp();
 }

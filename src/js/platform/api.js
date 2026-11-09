@@ -45,6 +45,10 @@ export class ClientAPI {
      * @param {any=} options.body
      */
     _request(endpoint, options) {
+        if (G_IS_FLINSH) {
+            // The Flinsh sandbox has no network; online features (puzzle mode) are unavailable
+            return Promise.reject("offline");
+        }
         const headers = {
             "x-api-key": "d5c54aaa491f200709afff082c153ef2",
             "Content-Type": "application/json",

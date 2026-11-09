@@ -35,6 +35,32 @@ export class BaseSavegameInterface {
         }
         logger.log("Compiling schema for savegame version", version);
         const schema = this.getSchemaUncached();
+        if (G_IS_FLINSH) {
+            // Ajv compiles schemas with new Function(), which the Flinsh CSP (no 'unsafe-eval')
+            // refuses, so saving would fail. Every savegame schema (schemas/*.json) is just
+            // { type: "object", required: [], additionalProperties: true }; check exactly that.
+            const isPlainObjectSchema =
+                schema &&
+                schema.type === "object" &&
+                (!schema.required || schema.required.length === 0) &&
+                schema.additionalProperties !== false &&
+                !schema.properties;
+            if (!isPlainObjectSchema) {
+                throw new Error(
+                    "Savegame schema " + version + " needs Ajv, which can't run under the Flinsh CSP"
+                );
+            }
+            /** @type {((data: any) => boolean) & { errors?: object[] | null }} */
+            const validator = data => {
+                const ok = data !== null && typeof data === "object" && !Array.isArray(data);
+                validator.errors = ok
+                    ? null
+                    : [{ keyword: "type", dataPath: "", message: "should be object" }];
+                return ok;
+            };
+            validators[version] = validator;
+            return validator;
+        }
         try {
             validators[version] = ajv.compile(schema);
         } catch (ex) {

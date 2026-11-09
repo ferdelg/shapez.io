@@ -4,7 +4,7 @@ import { openStandaloneLink } from "./config";
 export let WEB_STEAM_SSO_AUTHENTICATED = false;
 
 export async function authorizeViaSSOToken(app, dialogs) {
-    if (G_IS_STANDALONE) {
+    if (G_IS_STANDALONE || G_IS_FLINSH) {
         return;
     }
 

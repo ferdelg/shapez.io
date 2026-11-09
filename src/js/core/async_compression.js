@@ -3,12 +3,20 @@ import CompressionWorker from "../webworkers/compression.worker";
 
 import { createLogger } from "./logging";
 import { round2Digits } from "./utils";
+import { globalConfig } from "./config";
+import { compressX64 } from "./lzstring";
+import { computeCrc } from "./sensitive_utils.encrypt";
+import { compressObject } from "../savegame/savegame_compressor";
 
 const logger = createLogger("async_compression");
 
 export let compressionPrefix = String.fromCodePoint(1);
 
 function checkCryptPrefix(prefix) {
+    if (G_IS_FLINSH) {
+        // No localStorage in the sandbox; the store keeps JSON strings, so any prefix works
+        return true;
+    }
     try {
         window.localStorage.setItem("prefix_test", prefix);
         window.localStorage.removeItem("prefix_test");
@@ -35,14 +43,52 @@ if (!checkCryptPrefix(compressionPrefix)) {
  * }} JobEntry
  */
 
+/**
+ * Same job as webworkers/compression.worker.js, on the main thread. Used when workers
+ * are unavailable: the Flinsh CSP (script-src 'unsafe-inline' only) blocks the blob: URL
+ * the inlined worker is started from.
+ */
+function performJobOnMainThread(job, data) {
+    switch (job) {
+        case "compressX64": {
+            return compressX64(data);
+        }
+        case "compressObject": {
+            const salt = globalConfig.info.file;
+            const stringified = JSON.stringify(compressObject(data.obj));
+            const checksum = computeCrc(stringified + salt);
+            return data.compressionPrefix + compressX64(checksum + stringified);
+        }
+        default:
+            throw new Error("Unknown compression job: " + job);
+    }
+}
+
 class AsynCompression {
     constructor() {
-        this.worker = new CompressionWorker();
+        /** Set once the worker is known to be unusable */
+        this.useMainThread = false;
+        this.worker = null;
 
         this.currentJobId = 1000;
 
-        /** @type {Object.<number, JobEntry>} */
+        /** @type {Object.<number, JobEntry & { job: string, data: any }>} */
         this.currentJobs = {};
+
+        // @ts-ignore
+        if (G_IS_FLINSH && window.flinsh) {
+            // Known to be blocked by the sandbox CSP; don't trigger a CSP violation report
+            this.useMainThread = true;
+            return;
+        }
+
+        try {
+            this.worker = new CompressionWorker();
+        } catch (ex) {
+            logger.warn("Compression worker unavailable, compressing on the main thread:", ex);
+            this.useMainThread = true;
+            return;
+        }
 
         this.worker.addEventListener("message", event => {
             const { jobId, result } = event.data;
@@ -68,6 +114,17 @@ class AsynCompression {
         });
 
         this.worker.addEventListener("error", err => {
+            if (G_IS_FLINSH) {
+                // e.g. the worker script was refused by a CSP: finish the jobs here instead
+                logger.warn("Compression worker failed, switching to the main thread:", err);
+                this.useMainThread = true;
+                const pending = this.currentJobs;
+                this.currentJobs = {};
+                for (const jobId in pending) {
+                    this.runOnMainThread(pending[jobId]);
+                }
+                return;
+            }
             logger.error("Got error from webworker:", err, "aborting all jobs");
             const failureCalls = [];
             for (const jobId in this.currentJobs) {
@@ -78,6 +135,28 @@ class AsynCompression {
                 failureCalls[i](err);
             }
         });
+    }
+
+    /**
+     * @param {JobEntry & { job: string, data: any }} entry
+     */
+    runOnMainThread(entry) {
+        // Defer so callers still get an asynchronous result, like with the worker
+        setTimeout(() => {
+            try {
+                const result = performJobOnMainThread(entry.job, entry.data);
+                logger.log(
+                    "Main-thread",
+                    entry.job,
+                    "took",
+                    round2Digits(performance.now() - entry.startTime),
+                    "ms"
+                );
+                entry.resolver(result);
+            } catch (ex) {
+                entry.errorHandler(ex);
+            }
+        }, 0);
     }
 
     /**
@@ -105,11 +184,18 @@ class AsynCompression {
                 logger.error("Failed to compress job", jobId, ":", err);
                 reject(err);
             };
-            this.currentJobs[jobId] = {
+            const entry = {
                 errorHandler,
                 resolver: resolve,
                 startTime: performance.now(),
+                job,
+                data,
             };
+            if (this.useMainThread) {
+                this.runOnMainThread(entry);
+                return;
+            }
+            this.currentJobs[jobId] = entry;
 
             logger.log("Posting job", job, "/", jobId);
             this.worker.postMessage({ jobId, job, data });

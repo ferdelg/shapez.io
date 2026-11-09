@@ -1,3 +1,10 @@
+> **This fork is a Flinsh build of shapez.** It packages the free web version of the game as a
+> [Flinsh](flinsh.json) app: it runs in Flinsh's sandboxed iframe with no network access, and saves
+> go to the Flinsh store instead of the browser. Upstream is
+> [tobspr-games/shapez.io](https://github.com/tobspr-games/shapez.io); the code stays under the
+> GPL-3.0 [LICENSE](LICENSE). See [FLINSH.md](FLINSH.md) for what changed, how to build it, and the
+> packaging report.
+
 ## shapez 2 out now!
 
 Shapez 2 is now available on Steam, adding multi-layer factories, better performance, trains, fluids, and much more!
@@ -39,6 +46,14 @@ Your goal is to produce shapes by cutting, rotating, merging and painting parts 
 -   Run `yarn` and then `yarn gulp` - it should now open in your browser
 
 **Notice**: This will produce a debug build with several debugging flags enabled. If you want to disable them, modify [`src/js/core/config.js`](src/js/core/config.js).
+
+### Flinsh build
+
+-   `yarn build:flinsh` builds the `web-flinsh` variant (`G_IS_FLINSH`) and packages it into
+    `dist-flinsh-single/index.html` (one self-contained file, the manifest's entrypoint) and
+    `dist-flinsh/` (a directory with relative asset URLs).
+-   `yarn serve:flinsh` and open `http://localhost:8130/test/flinsh-harness.html` to run it inside the
+    same sandbox and CSP Flinsh uses, with a mock `window.flinsh.store`.
 
 ## Creating Mods
 
